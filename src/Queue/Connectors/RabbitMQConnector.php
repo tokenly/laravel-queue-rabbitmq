@@ -58,6 +58,9 @@ class RabbitMQConnector implements ConnectorInterface
             'ssl_key' => $config['ssl_params']['local_key'],
             'ssl_passphrase' => $config['ssl_params']['passphrase'],
             'receive_method' => isset($config['receive']) ? $config['receive']['method'] : 'basic_get',
+            'heartbeat' => isset($config['timeouts']) ? $config['timeouts']['heartbeat'] : 0,
+            'read_timeout' => isset($config['timeouts']) ? $config['timeouts']['read'] : 3,
+            'write_timeout' => isset($config['timeouts']) ? $config['timeouts']['write'] : 3,
         ]);
 
         if ($factory instanceof DelayStrategyAware) {

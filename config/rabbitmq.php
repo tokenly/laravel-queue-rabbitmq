@@ -79,7 +79,7 @@ return [
      * Determine the number of seconds to sleep if there's an error communicating with rabbitmq
      * If set to false, it'll throw an exception rather than doing the sleep for X seconds.
      */
-    'sleep_on_error' => env('RABBITMQ_ERROR_SLEEP', 5),
+    'sleep_on_error' => false,
 
     /*
      * Optional SSL params if an SSL connection is used
@@ -104,4 +104,13 @@ return [
          */
         'timeout' => env('RABBITMQ_RECEIVE_TIMEOUT', 5000),
     ],
+
+    /**
+     * default to an 8 second heartbeat
+     */
+    'timeouts' => [
+        'read' => 16,
+        'write' => 16,
+        'heartbeat' => 8,
+    ]
 ];
