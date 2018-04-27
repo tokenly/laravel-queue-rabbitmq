@@ -85,6 +85,11 @@ class RabbitMQQueue extends Queue implements QueueContract
                 $message->setProperty(RabbitMQJob::ATTEMPT_COUNT_HEADERS_KEY, $options['attempts']);
             }
 
+            // set priority
+            if (isset($options['priority']) && $options['priority'] > 0) {
+                $message->setPriority($options['priority']);
+            }
+
             $producer = $this->context->createProducer();
             if (isset($options['delay']) && $options['delay'] > 0) {
                 $producer->setDeliveryDelay($options['delay'] * 1000);
