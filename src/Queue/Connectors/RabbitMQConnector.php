@@ -38,42 +38,45 @@ class RabbitMQConnector implements ConnectorInterface
             throw new \LogicException('The factory_class option is missing though it is required.');
         }
 
-        $factoryClass = $config['factory_class'];
-        if (false === class_exists($factoryClass) || false === (new \ReflectionClass($factoryClass))->implementsInterface(InteropAmqpConnectionFactory::class)) {
-            throw new \LogicException(sprintf('The factory_class option has to be valid class that implements "%s"', InteropAmqpConnectionFactory::class));
-        }
+        // for reconnecting...
+        $build_context_fn = function() use ($config) {
+            $factoryClass = $config['factory_class'];
+            if (false === class_exists($factoryClass) || false === (new \ReflectionClass($factoryClass))->implementsInterface(InteropAmqpConnectionFactory::class)) {
+                throw new \LogicException(sprintf('The factory_class option has to be valid class that implements "%s"', InteropAmqpConnectionFactory::class));
+            }
 
-        /** @var AmqpConnectionFactory $factory */
-        $factory = new $factoryClass([
-            'dsn' => $config['dsn'],
-            'host' => $config['host'],
-            'port' => $config['port'],
-            'user' => $config['login'],
-            'pass' => $config['password'],
-            'vhost' => $config['vhost'],
-            'ssl_on' => $config['ssl_params']['ssl_on'],
-            'ssl_verify' => $config['ssl_params']['verify_peer'],
-            'ssl_cacert' => $config['ssl_params']['cafile'],
-            'ssl_cert' => $config['ssl_params']['local_cert'],
-            'ssl_key' => $config['ssl_params']['local_key'],
-            'ssl_passphrase' => $config['ssl_params']['passphrase'],
-            'receive_method' => isset($config['receive']) ? $config['receive']['method'] : 'basic_get',
-            'heartbeat' => isset($config['timeouts']) ? $config['timeouts']['heartbeat'] : 0,
-            'read_timeout' => isset($config['timeouts']) ? $config['timeouts']['read'] : 3,
-            'write_timeout' => isset($config['timeouts']) ? $config['timeouts']['write'] : 3,
-        ]);
+            /** @var AmqpConnectionFactory $factory */
+            $factory = new $factoryClass([
+                'dsn' => $config['dsn'],
+                'host' => $config['host'],
+                'port' => $config['port'],
+                'user' => $config['login'],
+                'pass' => $config['password'],
+                'vhost' => $config['vhost'],
+                'ssl_on' => $config['ssl_params']['ssl_on'],
+                'ssl_verify' => $config['ssl_params']['verify_peer'],
+                'ssl_cacert' => $config['ssl_params']['cafile'],
+                'ssl_cert' => $config['ssl_params']['local_cert'],
+                'ssl_key' => $config['ssl_params']['local_key'],
+                'ssl_passphrase' => $config['ssl_params']['passphrase'],
+                'receive_method' => isset($config['receive']) ? $config['receive']['method'] : 'basic_get',
+                'heartbeat' => isset($config['timeouts']) ? $config['timeouts']['heartbeat'] : 0,
+                'read_timeout' => isset($config['timeouts']) ? $config['timeouts']['read'] : 3,
+                'write_timeout' => isset($config['timeouts']) ? $config['timeouts']['write'] : 3,
+            ]);
 
-        if ($factory instanceof DelayStrategyAware) {
-            $factory->setDelayStrategy(new RabbitMqDlxDelayStrategy());
-        }
+            if ($factory instanceof DelayStrategyAware) {
+                $factory->setDelayStrategy(new RabbitMqDlxDelayStrategy());
+            }
 
-        /** @var AmqpContext $context */
-        $context = $factory->createContext();
+            return $factory->createContext();
+        };
+        $context = $build_context_fn();
 
         $this->dispatcher->listen(WorkerStopping::class, function () use ($context) {
             $context->close();
         });
 
-        return new RabbitMQQueue($context, $config);
+        return new RabbitMQQueue($context, $config, $build_context_fn);
     }
 }

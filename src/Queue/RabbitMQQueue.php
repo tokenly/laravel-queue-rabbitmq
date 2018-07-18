@@ -30,12 +30,14 @@ class RabbitMQQueue extends Queue implements QueueContract
     /**
      * @var AmqpContext
      */
+    protected $build_context_fn;
     private $context;
     private $correlationId;
 
-    public function __construct(AmqpContext $context, array $config)
+    public function __construct(AmqpContext $context, array $config, callable $build_context_fn)
     {
         $this->context = $context;
+        $this->build_context_fn = $build_context_fn;
 
         $this->queueOptions = $config['options']['queue'];
         $this->queueOptions['arguments'] = isset($this->queueOptions['arguments']) ?
@@ -48,6 +50,13 @@ class RabbitMQQueue extends Queue implements QueueContract
         $this->receiveConfig = $config['receive'] ?? [];
 
         $this->sleepOnError = $config['sleep_on_error'] ?? 5;
+    }
+
+    public function reconnect()
+    {
+        $this->context = call_user_func($this->build_context_fn);
+        $this->correlationId = null;
+        $this->declarationsCache = [];
     }
 
     /** @inheritdoc */
@@ -68,40 +77,43 @@ class RabbitMQQueue extends Queue implements QueueContract
     /** @inheritdoc */
     public function pushRaw($payload, $queueName = null, array $options = [])
     {
-        try {
-            /**
-             * @var AmqpTopic $topic
-             * @var AmqpQueue $queue
-             */
-            list($queue, $topic) = $this->declareEverythingOnce($queueName);
+        for ($attempt = 1; $attempt <= 2; $attempt++) {
+            try {
+                /**
+                 * @var AmqpTopic $topic
+                 * @var AmqpQueue $queue
+                 */
+                list($queue, $topic) = $this->declareEverythingOnce($queueName);
 
-            $message = $this->context->createMessage($payload);
-            $message->setRoutingKey($queue->getQueueName());
-            $message->setCorrelationId($this->getCorrelationId());
-            $message->setContentType('application/json');
-            $message->setDeliveryMode(AmqpMessage::DELIVERY_MODE_PERSISTENT);
+                $message = $this->context->createMessage($payload);
+                $message->setRoutingKey($queue->getQueueName());
+                $message->setCorrelationId($this->getCorrelationId());
+                $message->setContentType('application/json');
+                $message->setDeliveryMode(AmqpMessage::DELIVERY_MODE_PERSISTENT);
 
-            if (isset($options['attempts'])) {
-                $message->setProperty(RabbitMQJob::ATTEMPT_COUNT_HEADERS_KEY, $options['attempts']);
+                if (isset($options['attempts'])) {
+                    $message->setProperty(RabbitMQJob::ATTEMPT_COUNT_HEADERS_KEY, $options['attempts']);
+                }
+
+                $producer = $this->context->createProducer();
+                if (isset($options['delay']) && $options['delay'] > 0) {
+                    $producer->setDeliveryDelay($options['delay'] * 1000);
+                }
+
+                $producer->send($topic, $message);
+
+                return $message->getCorrelationId();
+            } catch (\Exception $exception) {
+                // on first failure, try re-closing and opening the queue connection
+                if ($attempt == 1) {
+                    $this->reconnect();
+                    continue;
+                }
+
+                $this->reportConnectionError('pushRaw', $exception);
+
+                return null;
             }
-
-            // set priority
-            if (isset($options['priority']) && $options['priority'] > 0) {
-                $message->setPriority($options['priority']);
-            }
-
-            $producer = $this->context->createProducer();
-            if (isset($options['delay']) && $options['delay'] > 0) {
-                $producer->setDeliveryDelay($options['delay'] * 1000);
-            }
-
-            $producer->send($topic, $message);
-
-            return $message->getCorrelationId();
-        } catch (\Exception $exception) {
-            $this->reportConnectionError('pushRaw', $exception);
-
-            return null;
         }
     }
 
